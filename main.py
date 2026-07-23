@@ -412,8 +412,7 @@ def process_withdraw_amount(message, network_name, wallet_address):
         update_user(telegram_id, new_balance, invested, last_invest_time, daily_rate)
         add_transaction(telegram_id, "Withdraw", amount, "Pending")
         
-        bot.reply_to(message, f"💸 **Withdrawal Requested Successfully!**\n\n• Amount: **${amount:.2f} USD**\n• Network: {network_name}
-- Destination Address: `{wallet_address}`\n\nOur support team will process your withdrawal request shortly.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
+        bot.reply_to(message, f"💸 **Withdrawal Requested Successfully!**\n\n• Amount: **${amount:.2f} USD**\n• Network: {network_name}\n• Destination Address: `{wallet_address}`\n\nOur support team will process your withdrawal request shortly.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
         
         username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {telegram_id}"
         admin_msg = ( 
