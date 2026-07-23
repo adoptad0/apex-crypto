@@ -23,7 +23,7 @@ def keep_alive():
 
 TOKEN = '8976336886:AAG_76KLFWW9HGv9GIquqqiiGWDcDuOQw4A'
 bot = telebot.TeleBot(TOKEN)
-DB_NAME = 'simulator.db'
+DB_NAME = 'simulator_v2.db'  # Cambiado para evitar conflictos de base de datos
 
 # Inicia la base de datos de usuarios si no existe
 def init_db():
@@ -40,7 +40,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Obtiene los datos del usuario o lo registra con $100 gratis de prueba
+# Obtiene los datos del usuario o lo registra
 def get_user(telegram_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -68,9 +68,10 @@ def main_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     btn_balance = types.KeyboardButton("💳 Balance")
     btn_invest = types.KeyboardButton("📈 Invest")
+    btn_deposit = types.KeyboardButton("📥 Deposit")
     btn_claim = types.KeyboardButton("💰 Claim Profit")
     btn_withdraw = types.KeyboardButton("💸 Withdraw")
-    markup.add(btn_balance, btn_invest, btn_claim, btn_withdraw)
+    markup.add(btn_balance, btn_invest, btn_deposit, btn_claim, btn_withdraw)
     return markup
 
 @bot.message_handler(commands=['start', 'help'])
@@ -79,7 +80,7 @@ def send_welcome(message):
     get_user(telegram_id)  # Registra al usuario si es nuevo
     welcome_text = (
         "Welcome to **Apex Crypto**! 🚀\n\n"
-        "Here is your virtual investment simulator. We started you with **$100.00 USD** in demo money!\n\n"
+        "Here is your investment dashboard. We started you with **$100.00 USD** in demo money!\n\n"
         "Use the buttons below to navigate your account:"
     )
     bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
@@ -113,6 +114,23 @@ def check_balance(message):
         f"• Unclaimed Profit: **${pending_profit:.4f} USD**"
     )
     bot.reply_to(message, balance_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == "📥 Deposit")
+def show_deposit_addresses(message):
+    deposit_text = (
+        "📥 **Deposit Funds to Your Account**:\n\n"
+        "Please send your deposit to one of the addresses below. "
+        "Once confirmed, your balance will be credited:\n\n"
+        "• **BTC**:\n`bc1q46f64ny6k85954ndlzvh32kuc40mqdhxw7fxls`\n\n"
+        "• **ETH / ERC-20** (ETH, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
+        "• **Polygon** (MATIC, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
+        "• **BNB Chain** (BNB, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
+        "• **BASE** (ETH, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
+        "• **TRON** (TRX, USDT):\n`TWgDYwExwx7G3Cr2kY6xj18tdfd6KM2fLU`\n\n"
+        "• **XRP**:\n`rh6GEmHCXDUUJsCrnr3HusmUXkWNGjFyhN`\n\n"
+        "• **Solana** (SOL, USDT, USDC):\n`DM3ER7SdSAH6GZwisRVXFashLnPXpeaFKmrKEjDrpTPK`"
+    )
+    bot.reply_to(message, deposit_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == "📈 Invest")
 def invest_prompt(message):
