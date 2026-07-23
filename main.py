@@ -163,5 +163,3 @@ if __name__ == '__main__':
     keep_alive()
     print("Apex Crypto Bot is starting...")
     bot.infinity_polling()
-
-Guarda los cambios en GitHub haciendo clic en Commit changes y Render compilará la actualización de forma automática. ¡Avísame cuando esté listo para que vayas a Telegram a probarlo!
