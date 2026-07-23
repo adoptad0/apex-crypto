@@ -23,10 +23,10 @@ def keep_alive():
 
 TOKEN = '8976336886:AAG_76KLFWW9HGv9GIquqqiiGWDcDuOQw4A'
 bot = telebot.TeleBot(TOKEN)
-DB_NAME = 'apex_affiliate.db'  # Nueva base de datos con sistema de afiliados
+DB_NAME = 'apex_affiliate.db'
 
 ADMIN_ID = 7635269112  
-BOT_USERNAME = 'ApexCryptoBot'  # Reemplaza esto con el nombre de usuario real de tu bot (sin el @)
+BOT_USERNAME = 'MyApexCryptoBot'  # Corregido a tu usuario real
 
 DEPOSIT_ADDRESSES = {
     'btc': ('BTC', 'bc1q46f64ny6k85954ndlzvh32kuc40mqdhxw7fxls'),
@@ -152,9 +152,8 @@ def send_welcome(message):
     telegram_id = message.from_user.id
     balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
     
-    # Procesar enlace de referido si entra por primera vez
     args = message.text.split()
-    if len(args) > 1 and referred_by is NULL:
+    if len(args) > 1 and referred_by is None:
         try:
             referrer_id = int(args[1])
             if referrer_id != telegram_id:
@@ -333,7 +332,6 @@ def handle_admin_action(call):
         except Exception:
             pass
             
-        # --- PROCESAR COMISIÓN DE AFILIADO (10%) ---
         if referred_by:
             ref_balance, ref_invested, ref_last_time, ref_rate, ref_ref = get_user(referred_by)
             commission = amount * 0.10
@@ -354,7 +352,7 @@ def handle_admin_action(call):
             pass
         bot.edit_message_text(f"❌ Rejected: Deposit of ${amount:.2f} for user {user_id} was declined.", call.message.chat.id, call.message.message_id)
 
-# --- RETIROS ---
+# --- RETIROS INTERACTIVOS ---
 def withdraw_networks_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
     btn_btc = types.InlineKeyboardButton("BTC 🪙", callback_data="w_btc")
@@ -414,7 +412,8 @@ def process_withdraw_amount(message, network_name, wallet_address):
         update_user(telegram_id, new_balance, invested, last_invest_time, daily_rate)
         add_transaction(telegram_id, "Withdraw", amount, "Pending")
         
-        bot.reply_to(message, f"💸 **Withdrawal Requested Successfully!**\n\n• Amount: **${amount:.2f} USD**\n• Network: {network_name}\n• Destination Address: `{wallet_address}`\n\nOur support team will process your withdrawal request shortly.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
+        bot.reply_to(message, f"💸 **Withdrawal Requested Successfully!**\n\n• Amount: **${amount:.2f} USD**\n• Network: {network_name}
+- Destination Address: `{wallet_address}`\n\nOur support team will process your withdrawal request shortly.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
         
         username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {telegram_id}"
         admin_msg = ( 
