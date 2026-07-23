@@ -24,7 +24,7 @@ def keep_alive():
 
 TOKEN = '8976336886:AAG_76KLFWW9HGv9GIquqqiiGWDcDuOQw4A'
 bot = telebot.TeleBot(TOKEN)
-DB_NAME = 'apex_crypto.db'  # Nombre de base de datos profesional
+DB_NAME = 'apex_real.db'  # Base de datos limpia sin los $100 de regalo
 
 # Tu ID de Telegram para recibir las notificaciones de depósitos y retiros
 ADMIN_ID = 7635269112  
@@ -60,7 +60,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             telegram_id INTEGER PRIMARY KEY,
-            balance REAL DEFAULT 100.0,
+            balance REAL DEFAULT 0.0,
             invested REAL DEFAULT 0.0,
             last_invest_time TEXT
         )
@@ -78,19 +78,19 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Obtiene los datos del usuario o lo registra
+# Obtiene los datos del usuario o lo registra con $0
 def get_user(telegram_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT balance, invested, last_invest_time FROM users WHERE telegram_id = ?', (telegram_id,))
     row = cursor.fetchone()
     if not row:
-        cursor.execute('INSERT INTO users (telegram_id, balance, invested, last_invest_time) VALUES (?, 100.0, 0.0, NULL)', (telegram_id,))
+        cursor.execute('INSERT INTO users (telegram_id, balance, invested, last_invest_time) VALUES (?, 0.0, 0.0, NULL)', (telegram_id,))
         conn.commit()
-        balance, invested, last_invest_time = 100.0, 0.0, None
+        balance, invested, last_invest_time = 0.0, 0.0, None
     else:
         balance, invested, last_invest_time = row
-    conn.close()
+    conn.close;
     return balance, invested, last_invest_time
 
 # Actualiza los saldos del usuario en la base de datos
@@ -295,7 +295,7 @@ def handle_admin_action(call):
             pass
         bot.edit_message_text(f"❌ Rejected: Deposit of ${amount:.2f} for user {user_id} was declined.", call.message.chat.id, call.message.message_id)
 
-# --- NUEVO FLUJO DE RETIROS INTERACTIVOS ---
+# --- RETIROS INTERACTIVOS ---
 def withdraw_networks_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
     btn_btc = types.InlineKeyboardButton("BTC 🪙", callback_data="w_btc")
@@ -321,8 +321,6 @@ def withdraw_prompt(message):
 def handle_withdraw_network(call):
     network_key = call.data
     network_name = WITHDRAW_NETWORKS[network_key]
-    
-    # Guardamos la red elegida y solicitamos la dirección usando el teclado de cancelar
     msg = bot.send_message(call.message.chat.id, f"📥 **Withdrawal via {network_name}**\n\nPlease paste your receiving wallet address:", parse_mode='Markdown', reply_markup=cancel_keyboard())
     bot.register_next_step_handler(msg, process_withdraw_address, network_name)
 
@@ -332,8 +330,6 @@ def process_withdraw_address(message, network_name):
         return
         
     wallet_address = message.text
-    
-    # Solicitar el monto
     msg = bot.reply_to(message, f"💸 **Network**: {network_name}\n**Wallet**: `{wallet_address}`\n\nPlease type the amount you want to withdraw (Min. $50):", parse_mode='Markdown', reply_markup=cancel_keyboard())
     bot.register_next_step_handler(msg, process_withdraw_amount, network_name, wallet_address)
 
@@ -361,7 +357,6 @@ def process_withdraw_amount(message, network_name, wallet_address):
         
         bot.reply_to(message, f"💸 **Withdrawal Requested Successfully!**\n\n• Amount: **${amount:.2f} USD**\n• Network: {network_name}\n• Destination Address: `{wallet_address}`\n\nOur support team will process your withdrawal request shortly.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
         
-        # Alerta opcional para ti como admin de que alguien solicitó retiro
         username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {telegram_id}"
         admin_msg = ( 
             "⚠️ **New Withdrawal Request!**\n\n" 
@@ -369,7 +364,7 @@ def process_withdraw_amount(message, network_name, wallet_address):
             f"• Amount: ${amount:.2f} USD\n" 
             f"• Network: {network_name}\n" 
             f"• Address: `{wallet_address}`"
-        )
+        ) 
         try:
             bot.send_message(ADMIN_ID, admin_msg, parse_mode='Markdown')
         except Exception:
