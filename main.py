@@ -23,9 +23,10 @@ def keep_alive():
 
 TOKEN = '8976336886:AAG_76KLFWW9HGv9GIquqqiiGWDcDuOQw4A'
 bot = telebot.TeleBot(TOKEN)
-DB_NAME = 'apex_plans.db'  # Nueva base de datos para los planes de inversión
+DB_NAME = 'apex_affiliate.db'  # Nueva base de datos con sistema de afiliados
 
 ADMIN_ID = 7635269112  
+BOT_USERNAME = 'ApexCryptoBot'  # Reemplaza esto con el nombre de usuario real de tu bot (sin el @)
 
 DEPOSIT_ADDRESSES = {
     'btc': ('BTC', 'bc1q46f64ny6k85954ndlzvh32kuc40mqdhxw7fxls'),
@@ -58,7 +59,8 @@ def init_db():
             balance REAL DEFAULT 0.0,
             invested REAL DEFAULT 0.0,
             last_invest_time TEXT,
-            daily_rate REAL DEFAULT 0.0
+            daily_rate REAL DEFAULT 0.0,
+            referred_by INTEGER DEFAULT NULL
         )
     ''')
     cursor.execute('''
@@ -77,24 +79,46 @@ def init_db():
 def get_user(telegram_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('SELECT balance, invested, last_invest_time, daily_rate FROM users WHERE telegram_id = ?', (telegram_id,))
+    cursor.execute('SELECT balance, invested, last_invest_time, daily_rate, referred_by FROM users WHERE telegram_id = ?', (telegram_id,))
     row = cursor.fetchone()
     if not row:
-        cursor.execute('INSERT INTO users (telegram_id, balance, invested, last_invest_time, daily_rate) VALUES (?, 0.0, 0.0, NULL, 0.0)', (telegram_id,))
+        cursor.execute('INSERT INTO users (telegram_id, balance, invested, last_invest_time, daily_rate, referred_by) VALUES (?, 0.0, 0.0, NULL, 0.0, NULL)', (telegram_id,))
         conn.commit()
-        balance, invested, last_invest_time, daily_rate = 0.0, 0.0, None, 0.0
+        balance, invested, last_invest_time, daily_rate, referred_by = 0.0, 0.0, None, 0.0, None
     else:
-        balance, invested, last_invest_time, daily_rate = row
+        balance, invested, last_invest_time, daily_rate, referred_by = row
     conn.close()
-    return balance, invested, last_invest_time, daily_rate
+    return balance, invested, last_invest_time, daily_rate, referred_by
 
-def update_user(telegram_id, balance, invested, last_invest_time, daily_rate):
+def update_user(telegram_id, balance, invested, last_invest_time, daily_rate, referred_by=None):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET balance = ?, invested = ?, last_invest_time = ?, daily_rate = ? WHERE telegram_id = ?', 
-                   (balance, invested, last_invest_time, daily_rate, telegram_id))
+    if referred_by is not None:
+        cursor.execute('UPDATE users SET balance = ?, invested = ?, last_invest_time = ?, daily_rate = ?, referred_by = ? WHERE telegram_id = ?', 
+                       (balance, invested, last_invest_time, daily_rate, referred_by, telegram_id))
+    else:
+        cursor.execute('UPDATE users SET balance = ?, invested = ?, last_invest_time = ?, daily_rate = ? WHERE telegram_id = ?', 
+                       (balance, invested, last_invest_time, daily_rate, telegram_id))
     conn.commit()
     conn.close()
+
+def set_referrer(telegram_id, referrer_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET referred_by = ? WHERE telegram_id = ? AND referred_by IS NULL', (referrer_id, telegram_id))
+    conn.commit()
+    conn.close()
+
+def get_referral_stats(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) FROM users WHERE referred_by = ?', (telegram_id,))
+    count = cursor.fetchone()[0]
+    cursor.execute('SELECT SUM(amount) FROM transactions WHERE telegram_id = ? AND type = "Referral Bonus" AND status = "Completed"', (telegram_id,))
+    earnings = cursor.fetchone()[0]
+    earnings = earnings if earnings else 0.0
+    conn.close()
+    return count, earnings
 
 def add_transaction(telegram_id, t_type, amount, status):
     conn = sqlite3.connect(DB_NAME)
@@ -110,10 +134,11 @@ def main_menu_keyboard():
     btn_balance = types.KeyboardButton("💳 Balance")
     btn_invest = types.KeyboardButton("📈 Invest")
     btn_deposit = types.KeyboardButton("📥 Deposit")
+    btn_referrals = types.KeyboardButton("👥 Referrals")
     btn_history = types.KeyboardButton("📋 History")
     btn_claim = types.KeyboardButton("💰 Claim Profit")
     btn_withdraw = types.KeyboardButton("💸 Withdraw")
-    markup.add(btn_balance, btn_invest, btn_deposit, btn_history, btn_claim, btn_withdraw)
+    markup.add(btn_balance, btn_invest, btn_deposit, btn_referrals, btn_history, btn_claim, btn_withdraw)
     return markup
 
 def cancel_keyboard():
@@ -125,7 +150,18 @@ def cancel_keyboard():
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     telegram_id = message.from_user.id
-    get_user(telegram_id)
+    balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
+    
+    # Procesar enlace de referido si entra por primera vez
+    args = message.text.split()
+    if len(args) > 1 and referred_by is NULL:
+        try:
+            referrer_id = int(args[1])
+            if referrer_id != telegram_id:
+                set_referrer(telegram_id, referrer_id)
+        except ValueError:
+            pass
+            
     welcome_text = ( 
         "Welcome to **Apex Crypto**! 🚀\n\n" 
         "Your premium secure investment dashboard.\n\n" 
@@ -136,7 +172,7 @@ def send_welcome(message):
 @bot.message_handler(func=lambda message: message.text == "💳 Balance")
 def check_balance(message):
     telegram_id = message.from_user.id
-    balance, invested, last_invest_time, daily_rate = get_user(telegram_id)
+    balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
     
     profit_percentage = 0.0
     pending_profit = 0.0
@@ -146,8 +182,6 @@ def check_balance(message):
             start_time = datetime.datetime.fromisoformat(last_invest_time)
             now = datetime.datetime.now()
             diff_minutes = (now - start_time).total_seconds() / 60.0
-            # La simulación rápida escala según la tasa diaria elegida
-            # Si el plan es de 5% diario, equivale a 0.1% por minuto de prueba
             minute_rate = (daily_rate / 50.0)
             profit_percentage = diff_minutes * minute_rate
             pending_profit = invested * (profit_percentage / 100.0)
@@ -164,6 +198,24 @@ def check_balance(message):
         f"• Unclaimed Profit: **${pending_profit:.4f} USD**"
     ) 
     bot.reply_to(message, balance_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
+
+# --- SISTEMA DE REFERIDOS ---
+@bot.message_handler(func=lambda message: message.text == "👥 Referrals")
+def show_referrals_menu(message):
+    telegram_id = message.from_user.id
+    count, earnings = get_referral_stats(telegram_id)
+    
+    referral_link = f"https://t.me/{BOT_USERNAME}?start={telegram_id}"
+    
+    ref_text = ( 
+        "👥 **Apex Referral Program**\n\n" 
+        "Invite your partners to Apex Crypto and earn a **10.00% commission** on every deposit they make!\n\n" 
+        f"🔗 **Your Invitation Link**:\n`{referral_link}`\n\n" 
+        f"📊 **Your Stats**:\n" 
+        f"• Invited Partners: **{count} users**\n" 
+        f"• Referral Earnings: **${earnings:.2f} USD**"
+    ) 
+    bot.reply_to(message, ref_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
 # --- DEPOSITOS ---
 def deposit_networks_keyboard():
@@ -270,7 +322,7 @@ def handle_admin_action(call):
     user_id = int(data[1])
     amount = float(data[2])
     
-    balance, invested, last_invest_time, daily_rate = get_user(user_id)
+    balance, invested, last_invest_time, daily_rate, referred_by = get_user(user_id)
     
     if action == 'app':
         new_balance = balance + amount
@@ -280,6 +332,19 @@ def handle_admin_action(call):
             bot.send_message(user_id, f"🔔 **Deposit Approved!**\n**${amount:.2f} USD** has been added to your balance.", parse_mode='Markdown')
         except Exception:
             pass
+            
+        # --- PROCESAR COMISIÓN DE AFILIADO (10%) ---
+        if referred_by:
+            ref_balance, ref_invested, ref_last_time, ref_rate, ref_ref = get_user(referred_by)
+            commission = amount * 0.10
+            new_ref_balance = ref_balance + commission
+            update_user(referred_by, new_ref_balance, ref_invested, ref_last_time, ref_rate)
+            add_transaction(referred_by, "Referral Bonus", commission, "Completed")
+            try:
+                bot.send_message(referred_by, f"🎁 **Referral Commission Received!**\nYou earned **${commission:.2f} USD** (10%) because your invitee made a deposit!", parse_mode='Markdown')
+            except Exception:
+                pass
+                
         bot.edit_message_text(f"✅ Approved: ${amount:.2f} credited to user {user_id}.", call.message.chat.id, call.message.message_id)
     elif action == 'rej':
         add_transaction(user_id, "Deposit", amount, "Rejected")
@@ -333,7 +398,7 @@ def process_withdraw_amount(message, network_name, wallet_address):
         return
         
     telegram_id = message.from_user.id
-    balance, invested, last_invest_time, daily_rate = get_user(telegram_id)
+    balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
     
     try: 
         amount = float(message.text)
@@ -367,7 +432,7 @@ def process_withdraw_amount(message, network_name, wallet_address):
     except ValueError:
         bot.reply_to(message, "Invalid number. Process cancelled.", reply_markup=main_menu_keyboard())
 
-# --- NUEVO FLUJO DE INVERSION CON PLANES ---
+# --- INVERSION CON PLANES ---
 def investment_plans_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=1)
     btn_bronze = types.InlineKeyboardButton("🥉 Bronze Plan (2% Daily - Min. $10)", callback_data="plan_0.02_10")
@@ -389,7 +454,6 @@ def handle_plan_selection(call):
     data = call.data.split('_')
     rate = float(data[1])
     min_amount = float(data[2])
-    
     plan_name = "Bronze" if rate == 0.02 else ("Silver" if rate == 0.05 else "Gold")
     
     msg = bot.send_message(call.message.chat.id, f"📈 **Selected: {plan_name} Plan ({rate*100:.0f}% Daily)**\n\nPlease type the amount you want to invest (Min. ${min_amount:.2f} USD):", parse_mode='Markdown', reply_markup=cancel_keyboard())
@@ -401,7 +465,7 @@ def process_plan_investment(message, rate, min_amount):
         return
         
     telegram_id = message.from_user.id
-    balance, invested, last_invest_time, daily_rate = get_user(telegram_id)
+    balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
     
     try:
         amount = float(message.text)
@@ -416,7 +480,6 @@ def process_plan_investment(message, rate, min_amount):
         new_balance = balance - amount
         new_invested = invested + amount
         now_str = datetime.datetime.now().isoformat()
-        # Guardamos la nueva tasa diaria asignada al usuario
         update_user(telegram_id, new_balance, new_invested, now_str, rate)
         add_transaction(telegram_id, "Invest", amount, "Active")
         
@@ -429,7 +492,7 @@ def process_plan_investment(message, rate, min_amount):
 @bot.message_handler(func=lambda message: message.text == "💰 Claim Profit")
 def claim_profit(message):
     telegram_id = message.from_user.id
-    balance, invested, last_invest_time, daily_rate = get_user(telegram_id)
+    balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
     
     if invested <= 0 or not last_invest_time:
         bot.reply_to(message, "You don't have any active investments. Use 'Invest' to start earning.", reply_markup=main_menu_keyboard())
@@ -472,7 +535,7 @@ def show_history(message):
     if rows:
         history_text += "*Your Transactions:*\n"
         for row in rows:
-            icon = "📥" if row[0] == "Deposit" else "💸"
+            icon = "📥" if row[0] == "Deposit" else ("💸" if row[0] == "Withdraw" else ("📈" if row[0] == "Invest" else "🎁"))
             history_text += f"{icon} {row[0]}: ${row[1]:.2f} ({row[2]}) - {row[3]}\n"
         history_text += "\n"
     
