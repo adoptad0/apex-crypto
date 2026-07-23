@@ -24,12 +24,24 @@ def keep_alive():
 
 TOKEN = '8976336886:AAG_76KLFWW9HGv9GIquqqiiGWDcDuOQw4A'
 bot = telebot.TeleBot(TOKEN)
-DB_NAME = 'simulator_v3.db'  # Nueva versión para evitar conflictos
+DB_NAME = 'simulator_v3.db'
 
-# IMPORTANTE: Cambia esto por tu ID de Telegram para recibir las notificaciones de depósitos
-ADMIN_ID = 123456789  
+# Tu ID de Telegram real para notificaciones
+ADMIN_ID = 7635269112  
 
-# Inicia la base de datos de usuarios y transacciones
+# Direcciones de depósito reales
+DEPOSIT_ADDRESSES = {
+    'btc': ('BTC', 'bc1q46f64ny6k85954ndlzvh32kuc40mqdhxw7fxls'),
+    'eth': ('ETH / ERC-20 (ETH, USDT, USDC)', '0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB'),
+    'polygon': ('Polygon (MATIC, USDT, USDC)', '0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB'),
+    'bnb': ('BNB Chain (BNB, USDT, USDC)', '0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB'),
+    'base': ('BASE (ETH, USDT, USDC)', '0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB'),
+    'tron': ('TRON (TRX, USDT)', 'TWgDYwExwx7G3Cr2kY6xj18tdfd6KM2fLU'),
+    'xrp': ('XRP', 'rh6GEmHCXDUUJsCrnr3HusmUXkWNGjFyhN'),
+    'solana': ('Solana (SOL, USDT, USDC)', 'DM3ER7SdSAH6GZwisRVXFashLnPXpeaFKmrKEjDrpTPK')
+}
+
+# Inicia la base de datos de usuarios si no existe
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -69,7 +81,7 @@ def get_user(telegram_id):
     conn.close()
     return balance, invested, last_invest_time
 
-# Actualiza los saldos del usuario
+# Actualiza los saldos del usuario en la base de datos
 def update_user(telegram_id, balance, invested, last_invest_time):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -103,9 +115,9 @@ def main_menu_keyboard():
 def send_welcome(message):
     telegram_id = message.from_user.id
     get_user(telegram_id)  # Registra al usuario si es nuevo
-    welcome_text = (
-        "Welcome to **Apex Crypto**! 🚀\n\n"
-        "Here is your investment dashboard. We started you with **$100.00 USD** in demo money!\n\n"
+    welcome_text = ( 
+        "Welcome to **Apex Crypto**! 🚀\n\n" 
+        "Here is your investment dashboard. We started you with **$100.00 USD** in demo money!\n\n" 
         "Use the buttons below to navigate your account:"
     )
     bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
@@ -123,6 +135,7 @@ def check_balance(message):
             start_time = datetime.datetime.fromisoformat(last_invest_time)
             now = datetime.datetime.now()
             diff_minutes = (now - start_time).total_seconds() / 60.0
+            # Simulación rápida: 0.1% por minuto
             profit_percentage = diff_minutes * 0.1
             pending_profit = invested * (profit_percentage / 100.0)
         except Exception:
@@ -139,52 +152,87 @@ def check_balance(message):
     )
     bot.reply_to(message, balance_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
+# --- MENÚ DE DEPOSITOS INTERACTIVO ---
+def deposit_networks_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn_btc = types.InlineKeyboardButton("BTC 🪙", callback_data="net_btc")
+    btn_eth = types.InlineKeyboardButton("ETH / ERC-20 🌐", callback_data="net_eth")
+    btn_poly = types.InlineKeyboardButton("Polygon 🟣", callback_data="net_polygon")
+    btn_bnb = types.InlineKeyboardButton("BNB Chain 🟡", callback_data="net_bnb")
+    btn_base = types.InlineKeyboardButton("BASE 🔵", callback_data="net_base")
+    btn_tron = types.InlineKeyboardButton("TRON 🔴", callback_data="net_tron")
+    btn_xrp = types.InlineKeyboardButton("XRP 🌐", callback_data="net_xrp")
+    btn_sol = types.InlineKeyboardButton("Solana 🟢", callback_data="net_solana")
+    markup.add(btn_btc, btn_eth, btn_poly, btn_bnb, btn_base, btn_tron, btn_xrp, btn_sol)
+    return markup
+
 @bot.message_handler(func=lambda message: message.text == "📥 Deposit")
-def show_deposit_addresses(message):
+def show_deposit_menu(message):
     deposit_text = (
-        "📥 **Deposit Funds to Your Account**:\n\n"
-        "Please send your deposit to one of the addresses below. "
-        "Once confirmed, your balance will be credited:\n\n"
-        "• **BTC**:\n`bc1q46f64ny6k85954ndlzvh32kuc40mqdhxw7fxls`\n\n"
-        "• **ETH / ERC-20** (ETH, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
-        "• **Polygon** (MATIC, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
-        "• **BNB Chain** (BNB, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
-        "• **BASE** (ETH, USDT, USDC):\n`0xfC1dF2CBD973D1234d2108996Cc8694d7489dDdB`\n\n"
-        "• **TRON** (TRX, USDT):\n`TWgDYwExwx7G3Cr2kY6xj18tdfd6KM2fLU`\n\n"
-        "• **XRP**:\n`rh6GEmHCXDUUJsCrnr3HusmUXkWNGjFyhN`\n\n"
-        "• **Solana** (SOL, USDT, USDC):\n`DM3ER7SdSAH6GZwisRVXFashLnPXpeaFKmrKEjDrpTPK`\n\n"
-        "⚠️ **Once you have sent the transaction**, click the button below to submit your deposit details for approval."
+        "📥 **Deposit Funds**\n\n"
+        "Please choose your preferred network to view your unique deposit address:"
+    )
+    bot.reply_to(message, deposit_text, parse_mode='Markdown', reply_markup=deposit_networks_keyboard())
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('net_'))
+def show_network_address(call):
+    network_key = call.data.replace('net_', '')
+    network_name, address = DEPOSIT_ADDRESSES[network_key]
+    
+    address_text = (
+        f"📥 **Deposit via {network_name}**\n\n"
+        "Send your deposit to this address:\n"
+        f"`{address}`\n\n"
+        "⚠️ **Once you have completed the transaction**, click the button below to submit your transaction details for verification."
     )
     
-    markup = types.InlineKeyboardMarkup()
+    markup = types.InlineKeyboardMarkup(row_width=1)
     btn_confirm = types.InlineKeyboardButton("✅ Confirm Deposit", callback_data="confirm_dep")
-    markup.add(btn_confirm)
+    btn_back = types.InlineKeyboardButton("⬅️ Back to Networks", callback_data="back_to_networks")
+    markup.add(btn_confirm, btn_back)
     
-    bot.reply_to(message, deposit_text, parse_mode='Markdown', reply_markup=markup)
+    bot.edit_message_text(address_text, call.message.chat.id, call.message.message_id, parse_mode='Markdown', reply_markup=markup)
 
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_networks")
+def back_to_networks(call):
+    deposit_text = (
+        "📥 **Deposit Funds**\n\n"
+        "Please choose your preferred network to view your unique deposit address:"
+    )
+    bot.edit_message_text(deposit_text, call.message.chat.id, call.message.message_id, parse_mode='Markdown', reply_markup=deposit_networks_keyboard())
+
+# --- FLUJO DE CONFIRMACIÓN DE DEPÓSITO ---
 @bot.callback_query_handler(func=lambda call: call.data == "confirm_dep")
 def ask_deposit_amount(call):
-    msg = bot.send_message(call.message.chat.id, "Please type the exact amount you deposited in USD (Example: 150):", reply_markup=types.ForceReply(selective=True))
+    msg = bot.send_message(call.message.chat.id, "Please type the exact amount you deposited in USD (Example: 150):\n*(Or type 'cancel' to exit)*", reply_markup=types.ForceReply(selective=True))
     bot.register_next_step_handler(msg, process_deposit_amount)
 
 def process_deposit_amount(message):
+    if message.text.lower() in ['cancel', 'cancelar']:
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+        
     try:
         amount = float(message.text)
         if amount <= 0:
             bot.reply_to(message, "Amount must be greater than 0.")
             return
         
-        msg = bot.reply_to(message, "Please paste the Transaction Hash (TXID) or your Wallet Address to verify:", reply_markup=types.ForceReply(selective=True))
+        msg = bot.reply_to(message, "Please paste the Transaction Hash (TXID) or your Wallet Address to verify:\n*(Or type 'cancel' to exit)*", reply_markup=types.ForceReply(selective=True))
         bot.register_next_step_handler(msg, process_deposit_proof, amount)
     except ValueError:
         bot.reply_to(message, "Please enter a valid number.")
 
 def process_deposit_proof(message, amount):
+    if message.text.lower() in ['cancel', 'cancelar']:
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+        
     txid = message.text
     user_id = message.from_user.id
     username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {user_id}"
     
-    bot.reply_to(message, "📥 **Deposit Submitted!**\nYour transaction is being processed and will be credited soon.", parse_mode='Markdown')
+    bot.reply_to(message, "📥 **Deposit Submitted!**\nYour transaction is being processed and will be credited soon.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
     
     # Guardar en transacciones como pendiente
     add_transaction(user_id, "Deposit", amount, "Pending")
@@ -240,11 +288,11 @@ def handle_admin_action(call):
             
         bot.edit_message_text(f"❌ Rejected: Deposit of ${amount:.2f} for user {user_id} was declined.", call.message.chat.id, call.message.message_id)
 
+# --- HISTORIAL ---
 @bot.message_handler(func=lambda message: message.text == "📋 History")
 def show_history(message):
     telegram_id = message.from_user.id
     
-    # Obtener transacciones reales
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('SELECT type, amount, status, date FROM transactions WHERE telegram_id = ? ORDER BY id DESC LIMIT 3', (telegram_id,))
@@ -253,7 +301,6 @@ def show_history(message):
     
     history_text = "📋 **Transaction History**:\n\n"
     
-    # Mostrar reales si existen
     if rows:
         history_text += "*Your Transactions:*\n"
         for row in rows:
@@ -261,7 +308,6 @@ def show_history(message):
             history_text += f"{icon} {row[0]}: ${row[1]:.2f} ({row[2]}) - {row[3]}\n"
         history_text += "\n"
     
-    # Agregar transacciones random globales para simular actividad profesional masiva
     history_text += "🌐 *Global Network Transactions (Live):*\n"
     tx_types = ["Deposit", "Withdraw", "Invest"]
     statuses = ["Completed", "Processing"]
@@ -277,12 +323,17 @@ def show_history(message):
         
     bot.reply_to(message, history_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
+# --- INVERTIR ---
 @bot.message_handler(func=lambda message: message.text == "📈 Invest")
 def invest_prompt(message):
-    msg = bot.reply_to(message, "Please type the amount you want to invest (Example: 50):", reply_markup=types.ForceReply(selective=True))
+    msg = bot.reply_to(message, "Please type the amount you want to invest (Example: 50):\n*(Or type 'cancel' to exit)*", reply_markup=types.ForceReply(selective=True))
     bot.register_next_step_handler(msg, process_invest)
 
 def process_invest(message):
+    if message.text.lower() in ['cancel', 'cancelar']:
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+        
     telegram_id = message.from_user.id
     balance, invested, last_invest_time = get_user(telegram_id)
     
@@ -307,6 +358,7 @@ def process_invest(message):
     except ValueError:
         bot.reply_to(message, "Please enter a valid number.")
 
+# --- RECLAMAR RECOMPENSAS ---
 @bot.message_handler(func=lambda message: message.text == "💰 Claim Profit")
 def claim_profit(message):
     telegram_id = message.from_user.id
@@ -336,12 +388,17 @@ def claim_profit(message):
     
     bot.reply_to(message, f"Claimed **${profit:.4f} USD** in profit! 💰\nAdded to your available balance.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
+# --- RETIROS ---
 @bot.message_handler(func=lambda message: message.text == "💸 Withdraw")
 def withdraw_prompt(message):
-    msg = bot.reply_to(message, "Please type the amount you want to withdraw (Min. $50):", reply_markup=types.ForceReply(selective=True))
+    msg = bot.reply_to(message, "Please type the amount you want to withdraw (Min. $50):\n*(Or type 'cancel' to exit)*", reply_markup=types.ForceReply(selective=True))
     bot.register_next_step_handler(msg, process_withdraw)
 
 def process_withdraw(message):
+    if message.text.lower() in ['cancel', 'cancelar']:
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+        
     telegram_id = message.from_user.id
     balance, invested, last_invest_time = get_user(telegram_id)
     
