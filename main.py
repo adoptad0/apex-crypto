@@ -194,7 +194,8 @@ def send_welcome(message):
         "Use the buttons below to manage your account:"
     ) 
     bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
-    @bot.message_handler(func=lambda message: message.text == "💳 Balance")
+
+@bot.message_handler(func=lambda message: message.text == "💳 Balance")
 def check_balance(message):
     telegram_id = message.from_user.id
     balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
@@ -608,7 +609,7 @@ def admin_stats(message):
         f"• Total Users: **{count}**\n"
         f"• Total Balance: **${total_bal:.2f} USD**\n"
         f"• Total Invested: **${total_inv:.2f} USD**"
-    )
+    ) 
     bot.reply_to(message, stats_text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == "📢 Broadcast" and message.from_user.id == ADMIN_ID)
