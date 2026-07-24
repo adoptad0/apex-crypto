@@ -108,6 +108,24 @@ def update_user(telegram_id, balance, invested, last_invest_time, daily_rate, re
     cursor.close()
     conn.close()
 
+def get_all_users():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT telegram_id FROM users')
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return [row[0] for row in rows]
+
+def get_global_stats():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*), COALESCE(SUM(balance), 0), COALESCE(SUM(invested), 0) FROM users')
+    stats = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return stats
+
 def set_referrer(telegram_id, referrer_id):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -176,9 +194,7 @@ def send_welcome(message):
         "Use the buttons below to manage your account:"
     ) 
     bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
-
-
-@bot.message_handler(func=lambda message: message.text == "💳 Balance")
+    @bot.message_handler(func=lambda message: message.text == "💳 Balance")
 def check_balance(message):
     telegram_id = message.from_user.id
     balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
@@ -563,6 +579,88 @@ def show_history(message):
         history_text += f"• {icon} {rand_type} of **${rand_amount:.2f}** - {rand_status} ({rand_time})\n"
         
     bot.reply_to(message, history_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
+
+# ==========================================
+#          NUEVO PANEL DE ADMINISTRADOR
+# ==========================================
+
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn_stats = types.KeyboardButton("📊 Global Stats")
+    btn_broadcast = types.KeyboardButton("📢 Broadcast")
+    btn_edit = types.KeyboardButton("✏️ Edit Balance")
+    btn_main = types.KeyboardButton("⬅️ User Menu")
+    markup.add(btn_stats, btn_broadcast, btn_edit, btn_main)
+    bot.reply_to(message, "⚙️ **Welcome to the Admin Panel**", parse_mode='Markdown', reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == "⬅️ User Menu" and message.from_user.id == ADMIN_ID)
+def back_to_user_menu(message):
+    bot.reply_to(message, "Returning to main menu...", reply_markup=main_menu_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == "📊 Global Stats" and message.from_user.id == ADMIN_ID)
+def admin_stats(message):
+    count, total_bal, total_inv = get_global_stats()
+    stats_text = (
+        "📊 **Global Bot Statistics**:\n\n"
+        f"• Total Users: **{count}**\n"
+        f"• Total Balance: **${total_bal:.2f} USD**\n"
+        f"• Total Invested: **${total_inv:.2f} USD**"
+    )
+    bot.reply_to(message, stats_text, parse_mode='Markdown')
+
+@bot.message_handler(func=lambda message: message.text == "📢 Broadcast" and message.from_user.id == ADMIN_ID)
+def admin_broadcast(message):
+    msg = bot.send_message(message.chat.id, "Please type the message you want to send to ALL users:", reply_markup=cancel_keyboard())
+    bot.register_next_step_handler(msg, process_broadcast)
+
+def process_broadcast(message):
+    if message.text == "❌ Cancelar":
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+    users = get_all_users()
+    sent_count = 0
+    for u_id in users:
+        try:
+            bot.send_message(u_id, message.text, parse_mode='Markdown')
+            sent_count += 1
+        except Exception:
+            pass
+    bot.reply_to(message, f"📢 Broadcast completed! Sent to **{sent_count}/{len(users)}** users.", reply_markup=main_menu_keyboard())
+
+@bot.message_handler(func=lambda message: message.text == "✏️ Edit Balance" and message.from_user.id == ADMIN_ID)
+def admin_edit_balance(message):
+    msg = bot.send_message(message.chat.id, "Enter the Telegram ID of the user:", reply_markup=cancel_keyboard())
+    bot.register_next_step_handler(msg, process_edit_user_id)
+
+def process_edit_user_id(message):
+    if message.text == "❌ Cancelar":
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+    try:
+        target_id = int(message.text)
+        msg = bot.send_message(message.chat.id, f"Enter the new balance for user `{target_id}`:", parse_mode='Markdown')
+        bot.register_next_step_handler(msg, process_edit_amount, target_id)
+    except ValueError:
+        bot.reply_to(message, "Invalid ID. Process cancelled.", reply_markup=main_menu_keyboard())
+
+def process_edit_amount(message, target_id):
+    if message.text == "❌ Cancelar":
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+    try:
+        new_bal = float(message.text)
+        bal, inv, last_time, rate, ref = get_user(target_id)
+        update_user(target_id, new_bal, inv, last_time, rate, ref)
+        bot.reply_to(message, f"✅ Updated balance of user `{target_id}` to **${new_bal:.2f} USD**.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
+        try:
+            bot.send_message(target_id, f"🔔 **Your balance has been updated by admin to: ${new_bal:.2f} USD**", parse_mode='Markdown')
+        except Exception:
+            pass
+    except ValueError:
+        bot.reply_to(message, "Invalid amount. Process cancelled.", reply_markup=main_menu_keyboard())
 
 if __name__ == '__main__':
     init_db()
