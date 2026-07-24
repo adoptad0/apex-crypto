@@ -165,7 +165,8 @@ def main_menu_keyboard():
     btn_history = types.KeyboardButton("📋 History")
     btn_claim = types.KeyboardButton("💰 Claim Profit")
     btn_withdraw = types.KeyboardButton("💸 Withdraw")
-    markup.add(btn_balance, btn_invest, btn_deposit, btn_referrals, btn_history, btn_claim, btn_withdraw)
+    btn_calc = types.KeyboardButton("🧮 Calculator")
+    markup.add(btn_balance, btn_invest, btn_deposit, btn_referrals, btn_history, btn_claim, btn_withdraw, btn_calc)
     return markup
 
 def cancel_keyboard():
@@ -582,7 +583,49 @@ def show_history(message):
     bot.reply_to(message, history_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
 # ==========================================
-#          NUEVO PANEL DE ADMINISTRADOR
+#         NUEVA CALCULADORA DE GANANCIAS
+# ==========================================
+
+@bot.message_handler(func=lambda message: message.text == "🧮 Calculator")
+def calculator_prompt(message):
+    msg = bot.reply_to(message, "🧮 **Apex Profit Calculator**\n\nPlease type the amount you want to simulate in USD (Example: 100):", parse_mode='Markdown', reply_markup=cancel_keyboard())
+    bot.register_next_step_handler(msg, process_simulation)
+
+def process_simulation(message):
+    if message.text == "❌ Cancelar":
+        bot.reply_to(message, "❌ Process cancelled.", reply_markup=main_menu_keyboard())
+        return
+    try:
+        amount = float(message.text)
+        if amount <= 0:
+            bot.reply_to(message, "Amount must be greater than 0.", reply_markup=main_menu_keyboard())
+            return
+        
+        bronze_daily = amount * 0.02
+        silver_daily = amount * 0.05
+        gold_daily = amount * 0.08
+        
+        calc_text = (
+            f"🧮 **Investment Simulation for ${amount:.2f} USD**:\n\n"
+            f"🥉 **Bronze Plan (2% Daily)**:\n"
+            f"• Daily Profit: **${bronze_daily:.2f} USD**\n"
+            f"• Weekly Profit: **${bronze_daily * 7:.2f} USD**\n"
+            f"• Monthly Profit: **${bronze_daily * 30:.2f} USD**\n\n"
+            f"🥈 **Silver Plan (5% Daily)**:\n"
+            f"• Daily Profit: **${silver_daily:.2f} USD**\n"
+            f"• Weekly Profit: **${silver_daily * 7:.2f} USD**\n"
+            f"• Monthly Profit: **${silver_daily * 30:.2f} USD**\n\n"
+            f"🥇 **Gold Plan (8% Daily)**:\n"
+            f"• Daily Profit: **${gold_daily:.2f} USD**\n"
+            f"• Weekly Profit: **${gold_daily * 7:.2f} USD**\n"
+            f"• Monthly Profit: **${gold_daily * 30:.2f} USD**"
+        )
+        bot.reply_to(message, calc_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
+    except ValueError:
+        bot.reply_to(message, "Invalid number. Process cancelled.", reply_markup=main_menu_keyboard())
+
+# ==========================================
+#          PANEL DE ADMINISTRADOR
 # ==========================================
 
 @bot.message_handler(commands=['admin'])
@@ -609,7 +652,7 @@ def admin_stats(message):
         f"• Total Users: **{count}**\n"
         f"• Total Balance: **${total_bal:.2f} USD**\n"
         f"• Total Invested: **${total_inv:.2f} USD**"
-    ) 
+    )
     bot.reply_to(message, stats_text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == "📢 Broadcast" and message.from_user.id == ADMIN_ID)
