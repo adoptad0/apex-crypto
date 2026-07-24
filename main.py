@@ -1,5 +1,5 @@
 import os
-import sqlite3
+import psycopg2
 import telebot
 from telebot import types
 from flask import Flask
@@ -23,10 +23,10 @@ def keep_alive():
 
 TOKEN = '8976336886:AAG_76KLFWW9HGv9GIquqqiiGWDcDuOQw4A'
 bot = telebot.TeleBot(TOKEN)
-DB_NAME = 'apex_affiliate.db'
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 ADMIN_ID = 7635269112  
-BOT_USERNAME = 'MyApexCryptoBot'  # Corregido a tu usuario real
+BOT_USERNAME = 'MyApexCryptoBot'
 
 DEPOSIT_ADDRESSES = {
     'btc': ('BTC', 'bc1q46f64ny6k85954ndlzvh32kuc40mqdhxw7fxls'),
@@ -50,23 +50,26 @@ WITHDRAW_NETWORKS = {
     'w_solana': 'Solana'
 }
 
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, sslmode='require')
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            telegram_id INTEGER PRIMARY KEY,
+            telegram_id BIGINT PRIMARY KEY,
             balance REAL DEFAULT 0.0,
             invested REAL DEFAULT 0.0,
             last_invest_time TEXT,
             daily_rate REAL DEFAULT 0.0,
-            referred_by INTEGER DEFAULT NULL
+            referred_by BIGINT DEFAULT NULL
         )
     ''')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER,
+            id SERIAL PRIMARY KEY,
+            telegram_id BIGINT,
             type TEXT,
             amount REAL,
             status TEXT,
@@ -74,59 +77,65 @@ def init_db():
         )
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_user(telegram_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT balance, invested, last_invest_time, daily_rate, referred_by FROM users WHERE telegram_id = ?', (telegram_id,))
+    cursor.execute('SELECT balance, invested, last_invest_time, daily_rate, referred_by FROM users WHERE telegram_id = %s', (telegram_id,))
     row = cursor.fetchone()
     if not row:
-        cursor.execute('INSERT INTO users (telegram_id, balance, invested, last_invest_time, daily_rate, referred_by) VALUES (?, 0.0, 0.0, NULL, 0.0, NULL)', (telegram_id,))
+        cursor.execute('INSERT INTO users (telegram_id, balance, invested, last_invest_time, daily_rate, referred_by) VALUES (%s, 0.0, 0.0, NULL, 0.0, NULL)', (telegram_id,))
         conn.commit()
         balance, invested, last_invest_time, daily_rate, referred_by = 0.0, 0.0, None, 0.0, None
     else:
         balance, invested, last_invest_time, daily_rate, referred_by = row
+    cursor.close()
     conn.close()
     return balance, invested, last_invest_time, daily_rate, referred_by
 
 def update_user(telegram_id, balance, invested, last_invest_time, daily_rate, referred_by=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     if referred_by is not None:
-        cursor.execute('UPDATE users SET balance = ?, invested = ?, last_invest_time = ?, daily_rate = ?, referred_by = ? WHERE telegram_id = ?', 
+        cursor.execute('UPDATE users SET balance = %s, invested = %s, last_invest_time = %s, daily_rate = %s, referred_by = %s WHERE telegram_id = %s', 
                        (balance, invested, last_invest_time, daily_rate, referred_by, telegram_id))
     else:
-        cursor.execute('UPDATE users SET balance = ?, invested = ?, last_invest_time = ?, daily_rate = ? WHERE telegram_id = ?', 
+        cursor.execute('UPDATE users SET balance = %s, invested = %s, last_invest_time = %s, daily_rate = %s WHERE telegram_id = %s', 
                        (balance, invested, last_invest_time, daily_rate, telegram_id))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def set_referrer(telegram_id, referrer_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET referred_by = ? WHERE telegram_id = ? AND referred_by IS NULL', (referrer_id, telegram_id))
+    cursor.execute('UPDATE users SET referred_by = %s WHERE telegram_id = %s AND referred_by IS NULL', (referrer_id, telegram_id))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_referral_stats(telegram_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM users WHERE referred_by = ?', (telegram_id,))
+    cursor.execute('SELECT COUNT(*) FROM users WHERE referred_by = %s', (telegram_id,))
     count = cursor.fetchone()[0]
-    cursor.execute('SELECT SUM(amount) FROM transactions WHERE telegram_id = ? AND type = "Referral Bonus" AND status = "Completed"', (telegram_id,))
+    cursor.execute('SELECT SUM(amount) FROM transactions WHERE telegram_id = %s AND type = \'Referral Bonus\' AND status = \'Completed\'', (telegram_id,))
     earnings = cursor.fetchone()[0]
     earnings = earnings if earnings else 0.0
+    cursor.close()
     conn.close()
     return count, earnings
 
 def add_transaction(telegram_id, t_type, amount, status):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    cursor.execute('INSERT INTO transactions (telegram_id, type, amount, status, date) VALUES (?, ?, ?, ?, ?)', 
+    cursor.execute('INSERT INTO transactions (telegram_id, type, amount, status, date) VALUES (%s, %s, %s, %s, %s)', 
                    (telegram_id, t_type, amount, status, now_str))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def main_menu_keyboard():
@@ -167,8 +176,7 @@ def send_welcome(message):
         "Use the buttons below to manage your account:"
     ) 
     bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
-
-@bot.message_handler(func=lambda message: message.text == "💳 Balance")
+    @bot.message_handler(func=lambda message: message.text == "💳 Balance")
 def check_balance(message):
     telegram_id = message.from_user.id
     balance, invested, last_invest_time, daily_rate, referred_by = get_user(telegram_id)
@@ -198,12 +206,10 @@ def check_balance(message):
     ) 
     bot.reply_to(message, balance_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
-# --- SISTEMA DE REFERIDOS ---
 @bot.message_handler(func=lambda message: message.text == "👥 Referrals")
 def show_referrals_menu(message):
     telegram_id = message.from_user.id
     count, earnings = get_referral_stats(telegram_id)
-    
     referral_link = f"https://t.me/{BOT_USERNAME}?start={telegram_id}"
     
     ref_text = ( 
@@ -216,7 +222,6 @@ def show_referrals_menu(message):
     ) 
     bot.reply_to(message, ref_text, parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
-# --- DEPOSITOS ---
 def deposit_networks_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
     btn_btc = types.InlineKeyboardButton("BTC 🪙", callback_data="net_btc")
@@ -352,7 +357,6 @@ def handle_admin_action(call):
             pass
         bot.edit_message_text(f"❌ Rejected: Deposit of ${amount:.2f} for user {user_id} was declined.", call.message.chat.id, call.message.message_id)
 
-# --- RETIROS INTERACTIVOS ---
 def withdraw_networks_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
     btn_btc = types.InlineKeyboardButton("BTC 🪙", callback_data="w_btc")
@@ -430,7 +434,6 @@ def process_withdraw_amount(message, network_name, wallet_address):
     except ValueError:
         bot.reply_to(message, "Invalid number. Process cancelled.", reply_markup=main_menu_keyboard())
 
-# --- INVERSION CON PLANES ---
 def investment_plans_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=1)
     btn_bronze = types.InlineKeyboardButton("🥉 Bronze Plan (2% Daily - Min. $10)", callback_data="plan_0.02_10")
@@ -438,6 +441,14 @@ def investment_plans_keyboard():
     btn_gold = types.InlineKeyboardButton("🥇 Gold Plan (8% Daily - Min. $500)", callback_data="plan_0.08_500")
     markup.add(btn_bronze, btn_silver, btn_gold)
     return markup
+
+@bot.message_handler(commands=['invest'])
+def invest_prompt_cmd(message):
+    invest_text = ( 
+        "📈 **Apex Crypto Investment Plans**\n\n" 
+        "Select the plan you wish to subscribe to:"
+    ) 
+    bot.reply_to(message, invest_text, parse_mode='Markdown', reply_markup=investment_plans_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == "📈 Invest")
 def invest_prompt(message):
@@ -486,7 +497,6 @@ def process_plan_investment(message, rate, min_amount):
     except ValueError:
         bot.reply_to(message, "Invalid number. Process cancelled.", reply_markup=main_menu_keyboard())
 
-# --- RECLAMAR RECOMPENSAS ---
 @bot.message_handler(func=lambda message: message.text == "💰 Claim Profit")
 def claim_profit(message):
     telegram_id = message.from_user.id
@@ -517,15 +527,15 @@ def claim_profit(message):
     
     bot.reply_to(message, f"Claimed **${profit:.4f} USD** in profit! 💰\nAdded to your available balance.", parse_mode='Markdown', reply_markup=main_menu_keyboard())
 
-# --- HISTORIAL ---
 @bot.message_handler(func=lambda message: message.text == "📋 History")
 def show_history(message):
     telegram_id = message.from_user.id
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT type, amount, status, date FROM transactions WHERE telegram_id = ? ORDER BY id DESC LIMIT 3', (telegram_id,))
+    cursor.execute('SELECT type, amount, status, date FROM transactions WHERE telegram_id = %s ORDER BY id DESC LIMIT 3', (telegram_id,))
     rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     
     history_text = "📋 **Transaction History**:\n\n"
